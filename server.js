@@ -1,3 +1,5 @@
+
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const axios = require("axios");
@@ -7,86 +9,94 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// ======================
 // TEST ROUTE
+// ======================
 app.get("/", (req, res) => {
-  res.send("Backend is running 🚀");
+    res.send("Backend is running 🚀");
 });
 
+// ======================
+// PAYNECTA KEYS (DIRECTLY ADDED)
+// ======================
+const PAYNECTA_API_KEY = "hmp_jf4l9FqKl3VC8qlQ5RASDIXVqe6oCZCTbjKC8nsa";
+const PAYNECTA_PUBLISHABLE_KEY = "ISPubKey_live_2f1fbe1d-3f94-4456-87e3-22e8c4e2012c";
 
-// ✅ NEW PAY ROUTE (PUT YOUR CODE HERE)
+// ======================
+// PAY (STK PUSH)
+// ======================
 app.post("/pay", async (req, res) => {
-  const { phone } = req.body;
+    const { phone } = req.body;
 
-  if (!phone) {
-    return res.status(400).send("Phone number is required");
-  }
+    // Validate Kenyan number
+    if (!/^254[71]\d{8}$/.test(phone)) {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid phone number"
+        });
+    }
 
-  try {
-    const auth = Buffer.from(
-      process.env.CONSUMER_KEY + ":" + process.env.CONSUMER_SECRET
-    ).toString("base64");
+    const amount = 200;
 
-    const tokenRes = await axios.get(
-      "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials",
-      {
-        headers: { Authorization: `Basic ${auth}` }
-      }
-    );
+    try {
+        const response = await axios.post(
+            "https://api.paynecta.com/stkpush",
+            {
+                phone: phone,
+                amount: amount,
+                account_reference: "EARN_APP",
+                transaction_desc: "Website Payment",
+                callback_url: "https://yourapp.onrender.com/webhook/paynecta"
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${hmp_jf4l9FqKl3VC8qlQ5RASDIXVqe6oCZCTbjKC8nsa}`,
+                    "Content-Type": "application/json",
+                    "ISPubKey_live_2f1fbe1d-3f94-4456-87e3-22e8c4e2012c ":PAYNECTA_PUBLISHABLE_KEY
+                }
+            }
+        );
 
-    const accessToken = tokenRes.data.access_token;
+        console.log("STK Push sent ✔");
 
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[-T:\.Z]/g, "")
-      .slice(0, 14);
+        res.json({
+            success: true,
+            message: "Check your phone for M-Pesa popup 📱"
+        });
 
-    const password = Buffer.from(
-      process.env.SHORTCODE +
-      process.env.PASSKEY +
-      timestamp
-    ).toString("base64");
+    } catch (error) {
+        console.log("PAYNECTA ERROR:", error.response?.data || error.message);
 
-    const stkRes = await axios.post(
-      "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
-      {
-        BusinessShortCode: process.env.SHORTCODE,
-        Password: password,
-        Timestamp: timestamp,
-        TransactionType: "CustomerPayBillOnline",
-        Amount: 200,
-        PartyA: phone,
-        PartyB: process.env.SHORTCODE,
-        PhoneNumber: phone,
-        CallBackURL: "https://backed--1.onrender.com/callback",
-        AccountReference: "Earn App",
-        TransactionDesc: "Payment"
-      },
-      {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      }
-    );
-
-    console.log("STK Response:", stkRes.data);
-
-    res.json({
-      message: "STK Push sent. Check your phone 📱",
-      data: stkRes.data
-    });
-
-  } catch (error) {
-    console.error("M-Pesa Error:", error.response?.data || error.message);
-    res.status(500).send("Payment failed");
-  }
+        res.status(500).json({
+            success: false,
+            message: "Payment failed"
+        });
+    }
 });
 
+// ======================
+// WEBHOOK
+// ======================
+app.post("/webhook/paynecta", (req, res) => {
+    const event = req.body.event;
+    const data = req.body.data;
 
-// CALLBACK
-app.post("/callback", (req, res) => {
-  console.log("M-Pesa Callback:", req.body);
-  res.sendStatus(200);
+    console.log("Webhook event:", event);
+    console.log("Data:", data);
+
+    if (event === "payment.success") {
+        console.log("✅ Payment Successful");
+    }
+
+    if (event === "payment.failed") {
+        console.log("❌ Payment Failed");
+    }
+
+    res.sendStatus(200);
 });
 
-
-// SERVER PORT
+// ======================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on port", PORT));
+app.listen(PORT, () => {
+    console.log("Server running on port", PORT);
+});
